@@ -20,16 +20,17 @@ from losses import loss_dict
 from metrics import *
 
 # pytorch-lightning
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.logging import TestTubeLogger
+from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch import LightningModule, Trainer
+from lightning.pytorch.loggers import WandbLogger
+
 
 class NeRFSystem(LightningModule):
-    def __init__(self, hparams):
+    def __init__(self, hparams_1):
         super(NeRFSystem, self).__init__()
-        self.hparams = hparams
+        self.hparams_1 = hparams_1
 
-        self.loss = loss_dict[hparams.loss_type]()
+        self.loss = loss_dict[hparams_1.loss_type]()
 
         self.embedding_xyz = Embedding(3, 10) # 10 is the default number
         self.embedding_dir = Embedding(3, 4) # 4 is the default number
@@ -37,7 +38,7 @@ class NeRFSystem(LightningModule):
 
         self.nerf_coarse = NeRF()
         self.models = [self.nerf_coarse]
-        if hparams.N_importance > 0:
+        if hparams_1.N_importance > 0:
             self.nerf_fine = NeRF()
             self.models += [self.nerf_fine]
 
@@ -50,17 +51,17 @@ class NeRFSystem(LightningModule):
         """Do batched inference on rays using chunk."""
         B = rays.shape[0]
         results = defaultdict(list)
-        for i in range(0, B, self.hparams.chunk):
+        for i in range(0, B, self.hparams_1.chunk):
             rendered_ray_chunks = \
                 render_rays(self.models,
                             self.embeddings,
-                            rays[i:i+self.hparams.chunk],
-                            self.hparams.N_samples,
-                            self.hparams.use_disp,
-                            self.hparams.perturb,
-                            self.hparams.noise_std,
-                            self.hparams.N_importance,
-                            self.hparams.chunk, # chunk size is effective in val mode
+                            rays[i:i+self.hparams_1.chunk],
+                            self.hparams_1.N_samples,
+                            self.hparams_1.use_disp,
+                            self.hparams_1.perturb,
+                            self.hparams_1.noise_std,
+                            self.hparams_1.N_importance,
+                            self.hparams_1.chunk, # chunk size is effective in val mode
                             self.train_dataset.white_back)
 
             for k, v in rendered_ray_chunks.items():
@@ -71,18 +72,18 @@ class NeRFSystem(LightningModule):
         return results
 
     def prepare_data(self):
-        dataset = dataset_dict[self.hparams.dataset_name]
-        kwargs = {'root_dir': self.hparams.root_dir,
-                  'img_wh': tuple(self.hparams.img_wh)}
-        if self.hparams.dataset_name == 'llff':
-            kwargs['spheric_poses'] = self.hparams.spheric_poses
-            kwargs['val_num'] = self.hparams.num_gpus
+        dataset = dataset_dict[self.hparams_1.dataset_name]
+        kwargs = {'root_dir': self.hparams_1.root_dir,
+                  'img_wh': tuple(self.hparams_1.img_wh)}
+        if self.hparams_1.dataset_name == 'llff':
+            kwargs['spheric_poses'] = self.hparams_1.spheric_poses
+            kwargs['val_num'] = self.hparams_1.num_gpus
         self.train_dataset = dataset(split='train', **kwargs)
         self.val_dataset = dataset(split='val', **kwargs)
 
     def configure_optimizers(self):
-        self.optimizer = get_optimizer(self.hparams, self.models)
-        scheduler = get_scheduler(self.hparams, self.optimizer)
+        self.optimizer = get_optimizer(self.hparams_1, self.models)
+        scheduler = get_scheduler(self.hparams_1, self.optimizer)
         
         return [self.optimizer], [scheduler]
 
@@ -90,7 +91,7 @@ class NeRFSystem(LightningModule):
         return DataLoader(self.train_dataset,
                           shuffle=True,
                           num_workers=4,
-                          batch_size=self.hparams.batch_size,
+                          batch_size=self.hparams_1.batch_size,
                           pin_memory=True)
 
     def val_dataloader(self):
@@ -125,7 +126,7 @@ class NeRFSystem(LightningModule):
         typ = 'fine' if 'rgb_fine' in results else 'coarse'
     
         if batch_nb == 0:
-            W, H = self.hparams.img_wh
+            W, H = self.hparams_1.img_wh
             img = results[f'rgb_{typ}'].view(H, W, 3).cpu()
             img = img.permute(2, 0, 1) # (3, H, W)
             img_gt = rgbs.view(H, W, 3).permute(2, 0, 1).cpu() # (3, H, W)
@@ -149,32 +150,36 @@ class NeRFSystem(LightningModule):
 
 
 if __name__ == '__main__':
-    hparams = get_opts()
-    system = NeRFSystem(hparams)
-    checkpoint_callback = ModelCheckpoint(filepath=os.path.join(f'ckpts/{hparams.exp_name}',
-                                                                '{epoch:d}'),
-                                          monitor='val/loss',
-                                          mode='min',
-                                          save_top_k=5,)
+    hparams_1 = get_opts()
+    system = NeRFSystem(hparams_1)
+    # checkpoint_callback = ModelCheckpoint(filepath=os.path.join(f'ckpts/{hparams_1.exp_name}',
+    #                                                             '{epoch:d}'),
+    #                                       monitor='val/loss',
+    #                                       mode='min',
+    #                                       save_top_k=5,)
+    checkpoint_callback = ModelCheckpoint(
+                                                                                dirpath=os.path.join(f'ckpts/{hparams_1.exp_name}'),
+                                                                                filename='{epoch:d}',
+                                                                                monitor='val/loss',
+                                                                                mode='min',
+                                                                                save_top_k=5,
+                                                                                )
 
-    logger = TestTubeLogger(
-        save_dir="logs",
-        name=hparams.exp_name,
-        debug=False,
-        create_git_tag=False
-    )
 
-    trainer = Trainer(max_epochs=hparams.num_epochs,
-                      checkpoint_callback=checkpoint_callback,
-                      resume_from_checkpoint=hparams.ckpt_path,
+    logger = WandbLogger()
+    
+
+    trainer = Trainer(max_epochs=hparams_1.num_epochs,
+                      callbacks=checkpoint_callback,
+                      resume_from_checkpoint=hparams_1.ckpt_path,
                       logger=logger,
                       early_stop_callback=None,
                       weights_summary=None,
                       progress_bar_refresh_rate=1,
-                      gpus=hparams.num_gpus,
-                      distributed_backend='ddp' if hparams.num_gpus>1 else None,
+                      gpus=hparams_1.num_gpus,
+                      distributed_backend='ddp' if hparams_1.num_gpus>1 else None,
                       num_sanity_val_steps=1,
                       benchmark=True,
-                      profiler=hparams.num_gpus==1)
+                      profiler=hparams_1.num_gpus==1)
 
     trainer.fit(system)
