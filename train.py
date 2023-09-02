@@ -186,7 +186,7 @@ class NeRFSystem(LightningModule):
             images = [img_gt_np, img_np, depth_np]
 
             # Log the images with captions
-            wandb.log({f"val/GT_pred_depth_{i}": [wandb.Image(image, caption=caption) for i, (image, caption) in enumerate(zip(images, captions))]}, step=self.global_step)
+            # wandb.log({f"val/GT_pred_depth_{i}": [wandb.Image(image, caption=caption) for i, (image, caption) in enumerate(zip(images, captions))]}, step=self.global_step)
             self.logger.log_images(
                                     "val/GT_pred_depth",
                                     images=images,
