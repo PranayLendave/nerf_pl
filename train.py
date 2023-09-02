@@ -185,7 +185,7 @@ if __name__ == '__main__':
     trainer = Trainer(
                         max_epochs=hparams_1.num_epochs,
                         callbacks=[checkpoint_callback],
-                        resume_from_checkpoint=hparams_1.ckpt_path,
+                        # resume_from_checkpoint=hparams_1.ckpt_path,
                         logger=logger,
                         enable_checkpointing=True,
                         enable_progress_bar=True,
