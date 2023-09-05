@@ -24,6 +24,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch import LightningModule, Trainer
 from lightning.pytorch.loggers import WandbLogger
 
+import wandb
 
 class NeRFSystem(LightningModule):
     def __init__(self, hparams_1):
@@ -185,14 +186,23 @@ class NeRFSystem(LightningModule):
             captions = ["Ground Truth", "Predicted", "Depth"]
             images = [img_gt_np, img_np, depth_np]
 
+            print("\n")
+            print("img_gt", img_gt_np.shape, img_gt_np.dtype, img_gt_np.device)  # Print image shape and data type
+            print("img", img_np.shape, img_np.dtype)
+            print("depth", depth_np.shape, depth_np.dtype)
+
+
+            for i, (image, caption) in enumerate(zip(images, captions)):
+                wandb.log({f"val/GT_pred_depth_{i}": wandb.Image(image, caption=caption)})
+
             # Log the images with captions
-            # wandb.log({f"val/GT_pred_depth_{i}": [wandb.Image(image, caption=caption) for i, (image, caption) in enumerate(zip(images, captions))]}, step=self.global_step)
-            self.logger.log_images(
-                                    "val/GT_pred_depth",
-                                    images=images,
-                                    caption=captions,
-                                    step=self.global_step
-                                )
+            # self.logger.log({f"val/GT_pred_depth_{i}": [wandb.Image(image, caption=caption) for i, (image, caption) in enumerate(zip(images, captions))]}, step=self.global_step)
+            # self.logger.experiment.log_images(
+            #                         "val/GT_pred_depth",
+            #                         images=images,
+            #                         caption=captions,
+            #                         step=self.global_step
+            #                     )
 
 
         # Compute Peak Signal-to-Noise Ratio (PSNR) between predicted and ground-truth RGB values
